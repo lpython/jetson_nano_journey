@@ -30,8 +30,10 @@ progressing from GStreamer CLI → C → no GStreamer → Rust. The full phased 
   The older `jetbot` alias points to the stale .211 address.
 - Claude Code runs SSH from the Mac. LAN access needs the sandbox disabled for that command.
   Use `-o BatchMode=yes` because there's no TTY for password prompts.
-- Commands that need sudo (`nvpmodel`, `jetson_clocks`, `tegrastats` with some flags) need a
-  password. Ask the user to run those themselves in their terminal or over VNC.
+- `jetson` has passwordless sudo (`NOPASSWD: ALL`), so `sudo -n` works from scripts over SSH.
+  Still ask before doing anything with system-wide effects (reboot, apt, nvpmodel changes).
+- Camera trouble (like `Failed to create CaptureSession`): run `scripts/camdiag.py` first, and
+  `scripts/camdiag.py --reset` to stop camera users and restart `nvargus-daemon`.
 - VNC: x11vnc on port **5990** (see vnc.md). Zed remote mode is also set up as a fallback editor.
 
 ## Actual platform (differs from PLAN.md)
@@ -52,3 +54,14 @@ PLAN.md assumes stock JetPack 4.6 on Ubuntu 18.04. This board runs a **Ubuntu 20
   port can use `bindgen`.
 - Compile CUDA natively on the Nano (`nvcc -arch=sm_53`). Don't cross-compile from macOS.
 - Keep generated files, binaries, and large captures out of git (see `.gitignore`).
+
+## Scripting: bash only for the basics
+
+- **Bash is for thin wrappers only**: a fixed command with at most an argument or two and defaults
+  (like `sync.sh` and `start_gstream_upload.sh`). No branching on modes, no building strings, and no `eval`.
+- **Anything with logic uses Python**, and that includes GStreamer experiments. Build pipelines with
+  `Gst.parse_launch` through `gi` rather than generating shell. This also lets a script read element
+  properties at runtime, such as queue depth. Example: `scripts/tee_demo.py`.
+- Python on the Nano means system `/usr/bin/python3` (**3.8**) with stdlib plus `gi` only. Don't use conda, pip
+  installs, or 3.9+ syntax (no `match`, `dict | dict`, or `list[str]` hints). Use `#!/usr/bin/python3`.
+- Don't use Nushell here because it isn't installed on the Nano.

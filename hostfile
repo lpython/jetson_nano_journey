@@ -1,0 +1,5 @@
+Host nano
+  HostName 192.168.1.209
+  User jetson
+  IdentityFile ~/.ssh/jetson
+  IdentitiesOnly yes

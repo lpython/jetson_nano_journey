@@ -84,6 +84,8 @@ gst-launch-1.0 udpsrc port=5000 \
 ```
 Then add the `tee` and the leaky inference branch. Try deliberately breaking it: make a queue unbounded and slow the sink, and watch latency climb.
 
+Past the single command above, drive pipelines from Python (`gi` + `Gst.parse_launch`, system Python 3.8 on the Nano) rather than bash. `scripts/tee_demo.py good|bad|starve` runs the tee experiment and prints the inference queue depth each second: `good` holds at 1 frame, `bad` grows about 40 frames/s (4.4 s behind after 7 s), and `starve` pins at 8 frames when the camera's NVMM pool runs dry.
+
 **Phase 2 — A C program that owns the pipeline.** Build the pipeline in C and end the inference branch in an `appsink` configured with `max-buffers=1 drop=true sync=false`. For each buffer:
 
 1. Get the dmabuf fd with `ExtractFdFromNvBuffer`.

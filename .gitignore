@@ -1,0 +1,20 @@
+# build outputs (built on the Nano, never synced back by default)
+build/
+*.o
+*.a
+*.so
+*.ptx
+*.cubin
+*.fatbin
+
+# Rust
+target/
+
+# captures / profiles
+*.h264
+*.mp4
+*.nsys-rep
+*.qdrep
+
+.DS_Store
+.vscode/*.log

@@ -1,0 +1,54 @@
+# jetson_nano_journey
+
+Low-latency camera → CUDA inference (MNIST/LeNet) → UDP pipeline on a Jetson Nano,
+progressing from GStreamer CLI → C → no GStreamer → Rust. The full phased plan is in
+[PLAN.md](PLAN.md). VNC setup is in [vnc.md](vnc.md).
+
+## Two machines, one source of truth
+
+| | Mac (local) | Jetson Nano (remote) |
+|---|---|---|
+| Path | `~/Repso/jetson_nano_journey` | `~/jetson_nano_journey` (`/home/jetson/jetson_nano_journey`) |
+| Role | Edit, git, Claude Code | Build, run, profile |
+| Git | **The repo.** All commits happen here. | **Not a repo.** A disposable mirror. |
+
+- Edit locally and push to the Nano with `scripts/sync.sh` (a one-way rsync with `--delete`).
+  Never edit files on the Nano directly, because the next sync overwrites them.
+- Build and run on the Nano over SSH: `scripts/remote.sh make` (runs in the remote project dir).
+- Build outputs stay on the Nano. Pull back only what's worth keeping (logs, captures, benchmark
+  results) with `scripts/pull.sh <remote-subpath>`, then commit it locally.
+- Don't run Claude Code, VS Code Server, or other heavy tools on the Nano. It has 4 GB of RAM
+  shared with the GPU.
+
+## Reaching the Nano
+
+- User `jetson`, hostname `nano`, currently at `192.168.1.209`. The IP has changed before (it was .211),
+  so it's DHCP-assigned and may move again.
+- Key: `~/.ssh/jetson`. The default key is rejected.
+- Scripts use the SSH alias in `$JETSON` (default `nano`). They expect a `Host nano` entry in
+  `~/.ssh/config` with `HostName`, `User jetson`, `IdentityFile ~/.ssh/jetson`, and `IdentitiesOnly yes`.
+  The older `jetbot` alias points to the stale .211 address.
+- Claude Code runs SSH from the Mac. LAN access needs the sandbox disabled for that command.
+  Use `-o BatchMode=yes` because there's no TTY for password prompts.
+- Commands that need sudo (`nvpmodel`, `jetson_clocks`, `tegrastats` with some flags) need a
+  password. Ask the user to run those themselves in their terminal or over VNC.
+- VNC: x11vnc on port **5990** (see vnc.md). Zed remote mode is also set up as a fallback editor.
+
+## Actual platform (differs from PLAN.md)
+
+PLAN.md assumes stock JetPack 4.6 on Ubuntu 18.04. This board runs a **Ubuntu 20.04** image on top of L4T:
+
+- L4T R32.6.1 (JetPack 4.6), kernel 4.9.253-tegra, aarch64, 4 cores, 4 GB
+- Ubuntu 20.04.6, **glibc 2.31**, **GCC 8.4**, **GStreamer 1.16.3**
+- CUDA 10.2 (`/usr/local/cuda/bin/nvcc`, not on PATH by default), Maxwell sm_53
+- Camera: **IMX219 over CSI** on `/dev/video0`, so the Argus/`nvarguscamerasrc` path applies
+- Power mode is MAXN. The fan mode isn't set, so check thermals before benchmarking.
+- Kernel 4.9 limits still apply: no io_uring and no UDP GSO. Use epoll, `sendmmsg`, and `recvmmsg`.
+
+## Conventions
+
+- The main code is C, built only against C-surface APIs (GStreamer, CUDA driver API, nvbuf_utils,
+  EGL, V4L2, sockets). Keep C++ (Argus, TensorRT) behind thin `extern "C"` shims so the Rust
+  port can use `bindgen`.
+- Compile CUDA natively on the Nano (`nvcc -arch=sm_53`). Don't cross-compile from macOS.
+- Keep generated files, binaries, and large captures out of git (see `.gitignore`).

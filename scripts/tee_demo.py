@@ -15,16 +15,13 @@ Modes (what the inference queue does):
 Prints the inference queue's depth once a second. Ctrl-C sends EOS (clean
 camera release); a second Ctrl-C quits immediately.
 
+Walkthrough for newcomers: docs/tee_demo.md
+
 Targets the Nano's system Python 3.8 (/usr/bin/python3) with gi; no conda.
 """
 import argparse
 import signal
 import sys
-
-import gi
-
-gi.require_version("Gst", "1.0")
-from gi.repository import GLib, Gst  # noqa: E402
 
 CAMERA = (
     "nvarguscamerasrc ! "
@@ -84,6 +81,11 @@ def main():
     if args.print:
         print(desc.replace(" ! ", " !\n  ").replace(" t. ", "\n t. "))
         return 0
+
+    # Imported here so --print works on a machine without GStreamer (e.g. the Mac).
+    import gi
+    gi.require_version("Gst", "1.0")
+    from gi.repository import GLib, Gst
 
     Gst.init(None)
     pipeline = Gst.parse_launch(desc)

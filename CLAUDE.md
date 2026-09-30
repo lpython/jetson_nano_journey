@@ -52,8 +52,18 @@ PLAN.md assumes stock JetPack 4.6 on Ubuntu 18.04. This board runs a **Ubuntu 20
 - The main code is C, built only against C-surface APIs (GStreamer, CUDA driver API, nvbuf_utils,
   EGL, V4L2, sockets). Keep C++ (Argus, TensorRT) behind thin `extern "C"` shims so the Rust
   port can use `bindgen`.
-- Compile CUDA natively on the Nano (`nvcc -arch=sm_53`). Don't cross-compile from macOS.
+- Build natively on the Nano with **clang-12** (installed via apt): C11 for host code, and CUDA kernels
+  compiled by clang to PTX (`--cuda-gpu-arch=sm_53 --cuda-device-only -S`), loaded at runtime with
+  `cuModuleLoad`. Host code links only `libcuda` (the driver API), with no nvcc and no CUDA runtime. See `phase2/Makefile`.
+  Don't cross-compile from macOS.
+- NVMM buffers going to CUDA must be pitch-linear: `nvvidconv bl-output=false` (it defaults to block-linear).
 - Keep generated files, binaries, and large captures out of git (see `.gitignore`).
+
+## Layout
+
+- `scripts/`: workflow and diagnostic tools (`sync.sh`, `remote.sh`, `camdiag.py`, `tee_demo.py`)
+- `phase2/`: C pipeline + appsink → zero-copy CUDA. `make` there; walkthrough in `docs/phase2.md`
+- `docs/`: newcomer-level walkthroughs of each piece
 
 ## Scripting: bash only for the basics
 

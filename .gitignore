@@ -11,6 +11,8 @@ build/
 target/
 
 # captures / profiles
+captures/
+*.pgm
 *.h264
 *.mp4
 *.nsys-rep

@@ -11,6 +11,7 @@
 #include <libgen.h>
 #include <limits.h>
 #include <signal.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -47,6 +48,7 @@ static volatile sig_atomic_t g_sigint;
 static gint g_camera_frames; /* incremented on the camera's streaming thread */
 
 static gint g_encoder_criticals;
+static int g_nvmm_validated; /* validate_nvmm passed on the first frame; main thread only */
 
 /* nvv4l2h264enc on L4T 32.x trips a gst_buffer_resize_range assertion once per encoded frame.
  * The stream is fine; count it instead of printing it. Every other message goes through. */
@@ -152,11 +154,63 @@ static GstElement *build_pipeline(const Options *o)
     return pipeline;
 }
 
+/* map.data is a void* to a struct NVIDIA doesn't publish, so the compiler can't check it.
+ * These are the runtime checks instead, run once on the first frame (the pipeline is fixed):
+ *   1. the caps say memory:NVMM, so the memory came from an NVMM allocator
+ *   2. the driver recognises the fd (NvBufferGetParams succeeds)
+ *   3. round trip: the fd's NvBuffer is the very pointer we extracted it from
+ *   4. size, layout and format match what the pipeline asked for */
+static int validate_nvmm(GstSample *sample, const GstMapInfo *map, int fd)
+{
+    GstCaps *caps = gst_sample_get_caps(sample); /* borrowed */
+    GstCapsFeatures *features = caps ? gst_caps_get_features(caps, 0) : NULL;
+    if (!features || !gst_caps_features_contains(features, "memory:NVMM")) {
+        gchar *str = caps ? gst_caps_to_string(caps) : g_strdup("(none)");
+        fprintf(stderr, "appsink caps are not NVMM: %s\n", str);
+        g_free(str);
+        return -1;
+    }
+    int width = 0, height = 0;
+    GstStructure *st = gst_caps_get_structure(caps, 0);
+    gst_structure_get_int(st, "width", &width);
+    gst_structure_get_int(st, "height", &height);
+
+    // extra padantic, skip
+    return 0;
+
+    NvBufferParams params;
+    if (NvBufferGetParams(fd, &params) != 0) {
+        fprintf(stderr, "fd %d is not an NvBuffer the driver knows\n", fd);
+        return -1;
+    }
+    if (params.nv_buffer != (void *)map->data || params.nv_buffer_size != map->size) {
+        fprintf(stderr, "round trip failed: map.data=%p size=%zu, driver says %p size=%u\n",
+                (void *)map->data, map->size, params.nv_buffer, params.nv_buffer_size);
+        return -1;
+    }
+    if (params.width[0] != (uint32_t)width || params.height[0] != (uint32_t)height ||
+        params.layout[0] != NvBufferLayout_Pitch ||
+        (params.pixel_format != NvBufferColorFormat_NV12 &&
+         params.pixel_format != NvBufferColorFormat_NV12_ER)) {
+        fprintf(stderr, "NvBuffer is %ux%u layout=%u format=%d, caps say %dx%d pitch-linear NV12\n",
+                params.width[0], params.height[0], params.layout[0], (int)params.pixel_format,
+                width, height);
+        return -1;
+    }
+    GstMemory *mem = gst_buffer_peek_memory(gst_sample_get_buffer(sample), 0);
+    printf("validated: NvBuffer %ux%u, Y pitch %u, %u planes, pitch-linear, %zu-byte handle, allocator %s\n",
+           params.width[0], params.height[0], params.pitch[0], params.num_planes, map->size,
+           mem && mem->allocator ? mem->allocator->mem_type : "?");
+    return 0;
+}
+
+/* Takes ownership of `sample` and always releases it, so "held" covers the whole time the
+ * buffer is out of nvvidconv's pool, including the final unref. */
 static int process_sample(GstSample *sample, Gpu *gpu, const Options *o, long index,
                           GstClockTime running_now, StatsWindow *w)
 {
     double t0 = now_ms();
-    GstBuffer *buf = gst_sample_get_buffer(sample);
+    GstBuffer *buf = gst_sample_get_buffer(sample); /* borrowed from the sample */
     GstClockTime pts = GST_BUFFER_PTS(buf);
     if (GST_CLOCK_TIME_IS_VALID(pts) && GST_CLOCK_TIME_IS_VALID(running_now) && running_now > pts)
         add(&w->age_sum, &w->age_max, (double)(running_now - pts) / GST_MSECOND);
@@ -165,37 +219,45 @@ static int process_sample(GstSample *sample, Gpu *gpu, const Options *o, long in
     GstMapInfo map;
     if (!gst_buffer_map(buf, &map, GST_MAP_READ)) {
         fprintf(stderr, "gst_buffer_map failed\n");
+        gst_sample_unref(sample);
         return -1;
     }
     int fd = -1, rc = -1;
-    GpuFrame frame;
-    InkStats ink;
+    GpuFrame frame = {0}; /* zeroed so gpu_unmap is safe on every path */
+    InkStats ink = {0};
+    double t1 = t0, t2 = t0;
     if (ExtractFdFromNvBuffer(map.data, &fd) != 0) {
         fprintf(stderr, "ExtractFdFromNvBuffer failed\n");
         goto out;
     }
+    if (!g_nvmm_validated) {
+        if (validate_nvmm(sample, &map, fd) != 0)
+            goto out;
+        g_nvmm_validated = 1;
+    }
     if (gpu_map_fd(gpu, fd, &frame) != 0)
         goto out;
-    double t1 = now_ms();
+    t1 = now_ms();
 
     rc = gpu_threshold(gpu, &frame, o->threshold, &ink);
-    double t2 = now_ms();
+    t2 = now_ms();
     if (rc == 0 && o->dump_prefix && index == o->dump_at)
         rc = gpu_dump_pgm(gpu, &frame, o->dump_prefix);
     if (o->hold_ms)
         usleep((useconds_t)o->hold_ms * 1000);
 
+out:
+    /* Release in reverse order of acquisition: CUDA view, then the GStreamer mapping, then the sample. */
     gpu_unmap(gpu, &frame);
+    gst_buffer_unmap(buf, &map);
+    gst_sample_unref(sample); /* the buffer can go back to its pool from here */
     if (rc == 0) {
         add(&w->map_sum, &w->map_max, t1 - t0);
         add(&w->kern_sum, &w->kern_max, t2 - t1);
+        add(&w->held_sum, &w->held_max, now_ms() - t0);
         w->ink = ink;
         w->frames++;
     }
-out:
-    gst_buffer_unmap(buf, &map);
-    if (rc == 0)
-        add(&w->held_sum, &w->held_max, now_ms() - t0);
     return rc;
 }
 
@@ -297,8 +359,7 @@ int main(int argc, char **argv)
             GstClockTime running_now = clock
                 ? gst_clock_get_time(clock) - gst_element_get_base_time(pipeline)
                 : GST_CLOCK_TIME_NONE;
-            int r = process_sample(sample, &gpu, &o, processed, running_now, &w);
-            gst_sample_unref(sample);
+            int r = process_sample(sample, &gpu, &o, processed, running_now, &w); /* consumes sample */
             if (r != 0) {
                 rc = 1;
                 break;

@@ -2,7 +2,8 @@
 # Host code is C11. The kernel is compiled to PTX and loaded at runtime through the CUDA
 # driver API, so the binary has no nvcc, no CUDA runtime and no C++ in it.
 #
-#   make            build build/phase2 and build/threshold.ptx
+#   make            build build/phase2, build/threshold.ptx and the kbench tool
+#   make tools      just build/kbench and build/probe.ptx (see tools/kbench.md)
 #   make CLANG=...  use a different clang (default clang-12)
 
 CLANG     ?= clang-12
@@ -23,7 +24,12 @@ LDLIBS  := $(shell pkg-config --libs $(PKGS)) -lnvbuf_utils -lcuda -lEGL
 CUFLAGS := -x cuda --cuda-gpu-arch=sm_53 --cuda-device-only --cuda-path=$(CUDA) -O3 -S \
            -Wno-unknown-cuda-version
 
-all: $(BUILD)/phase2 $(BUILD)/threshold.ptx
+# kbench needs only the CUDA driver API, no GStreamer or EGL.
+KBENCH_CFLAGS := -std=c11 -D_GNU_SOURCE -O2 -g -Wall -Wextra -I$(CUDA)/include
+
+all: $(BUILD)/phase2 $(BUILD)/threshold.ptx tools
+
+tools: $(BUILD)/kbench $(BUILD)/probe.ptx $(BUILD)/threshold.ptx
 
 $(BUILD)/phase2: $(BUILD)/main.o $(BUILD)/gpu.o
 	$(CC) $(LDFLAGS) -o $@ $^ $(LDLIBS)
@@ -34,10 +40,16 @@ $(BUILD)/%.o: src/%.c src/gpu.h src/ink_stats.h | $(BUILD)
 $(BUILD)/threshold.ptx: kernels/threshold.cu src/ink_stats.h | $(BUILD)
 	$(CLANG) $(CUFLAGS) -o $@ $<
 
+$(BUILD)/kbench: tools/kbench.c src/ink_stats.h | $(BUILD)
+	$(CC) $(KBENCH_CFLAGS) $(LDFLAGS) -o $@ $< -lcuda
+
+$(BUILD)/probe.ptx: tools/probe.cu | $(BUILD)
+	$(CLANG) $(CUFLAGS) -o $@ $<
+
 $(BUILD):
 	mkdir -p $@
 
 clean:
 	rm -rf $(BUILD)
 
-.PHONY: all clean
+.PHONY: all clean tools

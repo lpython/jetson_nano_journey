@@ -63,6 +63,8 @@ PLAN.md assumes stock JetPack 4.6 on Ubuntu 18.04. This board runs a **Ubuntu 20
 
 - `scripts/`: workflow and diagnostic tools (`sync.sh`, `remote.sh`, `camdiag.py`, `tee_demo.py`)
 - `phase2/`: C pipeline + appsink → zero-copy CUDA. `make` there; walkthrough in `docs/phase2.md`
+  - `phase2/kernels/notes.md`: deriving launch parameters for the Nano's single Maxwell SM
+  - `phase2/tools/kbench`: kernel benchmark on synthetic frames (`make tools`; design in `tools/kbench.md`)
 - `docs/`: newcomer-level walkthroughs of each piece
 
 ## Scripting: bash only for the basics

@@ -20,3 +20,9 @@ captures/
 
 .DS_Store
 .vscode/*.log
+
+# Phase 3 generated data (MNIST, exported weights/golden vectors, ONNX) and the Mac training venv
+phase3/data/
+*.pt
+*.onnx
+.venv/

@@ -95,7 +95,7 @@ Past the single command above, drive pipelines from Python (`gi` + `Gst.parse_la
 
 Your first kernel can be something simple like thresholding the Y plane. The `nvivafilter` element and its sample in the Jetson sources show the same interop, and they're worth reading as a reference. Release the buffer back quickly; this is where the pool-starvation lesson happens.
 
-**Phase 3 — Inference.** My strong recommendation is to hand-write LeNet-5 inference in CUDA C: convolution, pooling, ReLU, fully connected layers, and softmax, with weights loaded from a flat binary file. At 28×28 input the network is tiny, you'll learn more about memory coalescing, shared memory, and occupancy than any tutorial will teach you, and it avoids TensorRT's C++-only API, which keeps the Rust port clean.
+**Phase 3 — Inference.** (Detailed breakdown: [phase3/PLAN.md](phase3/PLAN.md).) My strong recommendation is to hand-write LeNet-5 inference in CUDA C: convolution, pooling, ReLU, fully connected layers, and softmax, with weights loaded from a flat binary file. At 28×28 input the network is tiny, you'll learn more about memory coalescing, shared memory, and occupancy than any tutorial will teach you, and it avoids TensorRT's C++-only API, which keeps the Rust port clean.
 
 For a performance baseline, run the same model through `trtexec` using an ONNX MNIST model from the ONNX model zoo, and try to beat or match it. To get weights without Python, you can use a pretrained ONNX model and extract the tensors, or train in Rust with `burn` or `candle` on the Mac.
 

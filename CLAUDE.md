@@ -65,6 +65,8 @@ PLAN.md assumes stock JetPack 4.6 on Ubuntu 18.04. This board runs a **Ubuntu 20
 - `phase2/`: C pipeline + appsink → zero-copy CUDA. `make` there; walkthrough in `docs/phase2.md`
   - `phase2/kernels/notes.md`: deriving launch parameters for the Nano's single Maxwell SM
   - `phase2/tools/kbench`: kernel benchmark on synthetic frames (`make tools`; design in `tools/kbench.md`)
+- `phase3/`: LeNet-5 inference: PyTorch reference (Mac), C reference + CPU kernel emulator (Mac and Nano),
+  CUDA kernels (Nano). Plan in `phase3/PLAN.md`
 - `docs/`: newcomer-level walkthroughs of each piece
 
 ## Scripting: bash only for the basics
@@ -76,4 +78,6 @@ PLAN.md assumes stock JetPack 4.6 on Ubuntu 18.04. This board runs a **Ubuntu 20
   properties at runtime, such as queue depth. Example: `scripts/tee_demo.py`.
 - Python on the Nano means system `/usr/bin/python3` (**3.8**) with stdlib plus `gi` only. Don't use conda, pip
   installs, or 3.9+ syntax (no `match`, `dict | dict`, or `list[str]` hints). Use `#!/usr/bin/python3`.
+- Exception: `phase3/train/` is Mac-only tooling (PyTorch in a venv). It never runs on the Nano; only
+  its exported files cross over.
 - Don't use Nushell here because it isn't installed on the Nano.
